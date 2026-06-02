@@ -190,10 +190,12 @@ local function CreateSettingsUI()
     end
     
     frame:SetScript("OnShow", UpdateCheckboxes)
+    -- 隐藏设置界面（不在加载时自动打开）
+    frame:Hide()
     
     _G["AutoMarkSettings"] = frame
     return frame
 end
 
--- 在插件加载时创建UI
+-- 在插件加载时创建UI（但不显示）
 C_Timer.After(0.5, CreateSettingsUI)
