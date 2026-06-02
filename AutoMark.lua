@@ -1,5 +1,5 @@
 -- AutoMark - 自动标记队友插件
--- 版本: 1.0.0
+-- 版本: 1.0.1
 -- 支持版本: WoW 12.0.5
 
 local ADDON_NAME = "AutoMark"
@@ -78,16 +78,14 @@ local function MarkUnit(unit, markId)
         return  -- 无标记
     end
     
-    -- 清除旧标记
-    SetRaidTarget(unit, 0)
-    
     -- 设置新标记
     if markId >= 1 and markId <= 8 then
         SetRaidTarget(unit, markId)
     end
 end
 
--- 自动标记队伍
+-- 自动标记队伍（只在首次标记时提示）
+local lastMarkedCount = 0
 local function AutoMarkGroup()
     if not AutoMarkDB.enabled or not AutoMarkDB.autoMark then
         return
@@ -95,22 +93,36 @@ local function AutoMarkGroup()
     
     local groupSize = GetNumGroupMembers()
     if groupSize == 0 then
+        lastMarkedCount = 0
         return
     end
     
+    local marked = false
+    
+    -- 检查是否在副本中
+    local isRaid = IsInRaid()
+    local prefix = isRaid and "raid" or "party"
+    
     for i = 1, groupSize do
-        local unitId = "raid" .. i
+        local unitId = prefix .. i
         if UnitExists(unitId) then
             local role = GetGroupMemberRole(unitId)
-            local markId = AutoMarkDB.marks[role] or 0
-            
-            if markId > 0 then
-                MarkUnit(unitId, markId)
+            if role then  -- 确保角色不为空
+                local markId = AutoMarkDB.marks[role] or 0
+                
+                if markId > 0 then
+                    MarkUnit(unitId, markId)
+                    marked = true
+                end
             end
         end
     end
     
-    print("|cff00ff00[AutoMark] 自动标记完成|r")
+    -- 只在首次标记时提示
+    if marked and groupSize ~= lastMarkedCount then
+        print("|cff00ff00[AutoMark] 自动标记完成|r")
+        lastMarkedCount = groupSize
+    end
 end
 
 -- 一键标记队伍
@@ -121,14 +133,19 @@ local function QuickMarkGroup()
         return
     end
     
+    local isRaid = IsInRaid()
+    local prefix = isRaid and "raid" or "party"
+    
     for i = 1, groupSize do
-        local unitId = "raid" .. i
+        local unitId = prefix .. i
         if UnitExists(unitId) then
             local role = GetGroupMemberRole(unitId)
-            local markId = AutoMarkDB.marks[role] or 0
-            
-            if markId > 0 then
-                MarkUnit(unitId, markId)
+            if role then  -- 确保角色不为空
+                local markId = AutoMarkDB.marks[role] or 0
+                
+                if markId > 0 then
+                    MarkUnit(unitId, markId)
+                end
             end
         end
     end
@@ -143,14 +160,18 @@ local function ClearAllMarks()
         return
     end
     
+    local isRaid = IsInRaid()
+    local prefix = isRaid and "raid" or "party"
+    
     for i = 1, groupSize do
-        local unitId = "raid" .. i
+        local unitId = prefix .. i
         if UnitExists(unitId) then
             SetRaidTarget(unitId, 0)
         end
     end
     
     print("|cff00ff00[AutoMark] 已清除所有标记|r")
+    lastMarkedCount = 0
 end
 
 -- 打印当前配置
@@ -213,33 +234,57 @@ EventFrame:RegisterEvent("GROUP_JOINED")
 EventFrame:RegisterEvent("ENCOUNTER_START")
 EventFrame:RegisterEvent("UNIT_FACTION")
 EventFrame:RegisterEvent("PARTY_MEMBER_ENABLE")
+EventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+EventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 
-local markTimer = 0
+-- 控制标记的时机
+local inCombat = false
+local hasMarked = false
+local checkTimer = 0
+
 local function OnUpdate(self, elapsed)
-    markTimer = markTimer + elapsed
-    if markTimer >= 2 then  -- 每2秒检查一次
+    checkTimer = checkTimer + elapsed
+    
+    -- 每1秒检查一次
+    if checkTimer >= 1 then
         if AutoMarkDB.enabled and AutoMarkDB.autoMark and IsInGroup() then
-            AutoMarkGroup()
+            -- 在副本中自动标记
+            if IsInRaid() and not inCombat then
+                AutoMarkGroup()
+            end
         end
-        markTimer = 0
+        checkTimer = 0
     end
 end
 
 EventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "ENCOUNTER_START" or event == "GROUP_JOINED" then
-        if AutoMarkDB.enabled and AutoMarkDB.autoMark then
-            markTimer = 0  -- 立即执行
-            OnUpdate(self, 0)
+    if event == "ENCOUNTER_START" then
+        inCombat = true
+        hasMarked = false
+    elseif event == "ENCOUNTER_END" then
+        inCombat = false
+    elseif event == "GROUP_JOINED" or event == "ZONE_CHANGED_NEW_AREA" then
+        -- 进入新区域或加入队伍时重置标记状态
+        lastMarkedCount = 0
+        hasMarked = false
+        if AutoMarkDB.enabled and AutoMarkDB.autoMark and IsInGroup() then
+            -- 延迟标记，确保职责信息已更新
+            C_Timer.After(0.5, AutoMarkGroup)
+        end
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        -- 队伍成员变化时重新标记
+        if AutoMarkDB.enabled and AutoMarkDB.autoMark and IsInGroup() and not inCombat then
+            checkTimer = 1  -- 立即检查
         end
     end
 end)
 
 EventFrame:SetScript("OnUpdate", OnUpdate)
 
--- 插件初始化
+-- 插件���始化
 local function Initialize()
     InitDB()
-    print("|cff00ff00[AutoMark] 插件已加载 v1.0.0|r")
+    print("|cff00ff00[AutoMark] 插件已加载 v1.0.1|r")
     print("|cffff9900使用 /mak 打开设置界面|r")
 end
 
