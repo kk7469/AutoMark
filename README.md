@@ -1,3 +1,54 @@
-## AutoMark - World of Warcraft Addon
+# AutoMark
 
-This repository contains the AutoMark addon which automatically marks group members by role and provides a settings UI.
+AutoMark 是一个为魔兽世界 12.0.5 设计的插件，用于在进入副本或组队时根据队员职责（专精）自动标记队伍成员，并提供设置界面以自定义行为与图标映射。
+
+功能
+- 自动标记：进入队伍/副本后根据每个成员的职责自动设置团队标记。
+- 一键标记：通过命令手动执行一次标记操作。
+- 设置界面：输入 `/mak` 打开设置界面，支持启用/禁用自动标记、选择是否使用 `/tm` 命令、一键标记按钮，以及为每个职责选择使用的标记编号（1-8）。
+- 标记优先使用 `/tm` 命令（可在设置中开启/关闭），若不可用则回退到游戏 API 的 SetRaidTarget 方法进行标记。
+
+安装
+1. 将整个仓库（或其中的 `AutoMark` 文件夹）复制到魔兽世界目录下的 AddOns 目录：
+   World of Warcraft/_retail_/Interface/AddOns/AutoMark
+2. 登录游戏并在角色选择界面确认启用 `AutoMark` 插件，或登录后运行 `/reload` 以重载界面。
+
+使用说明
+- 打开设置界面：在游戏中输入 `/mak`。
+  - Enable Auto Mark：启用或禁用进入队伍/副本后的自动标记功能。
+  - Use /tm command (fallback to API)：是否优先使用 `/tm <name> <index>` 命令；若取消勾选则只使用游戏 API 回退方式。
+  - One-Click Mark：一键标记按钮，立即对当前队伍执行标记。
+  - Tank / Healer / Damager 下拉：为每个职责选择要应用的标记编号（1-8），下拉会显示编号与内置图标名称。
+- 快捷命令：
+  - `/mak`：打开或关闭设置界面。
+  - `/amark`：立即执行一次一键标记操作（等同于设置界面里的按钮）。
+
+默认映射
+- TANK -> 2 （圆圈 / CIRCLE，通常显示为黄色圆形）
+- HEALER -> 5 （月亮 / MOON）
+- DAMAGER -> 8 （骷髅 / SKULL）
+
+注意事项与限制
+- 标记操作通常需要你在队伍中拥有队长或助理权限；若没有权限，SetRaidTarget 或 `/tm` 命令可能会失败。
+- `/tm` 命令并非暴雪原生命令，依赖服务器或其他插件支持；插件实现了回退机制以提高兼容性。
+- 名字重复：当前实现通过名称匹配单位（优先尝试在队伍/团里按 UnitToken 查找），如果队伍内存在重名玩家，可能会误标。若需要可进一步改为直接按 unit token 标记以避免歧义。
+- 延迟处理：插件在队伍变更后会延迟 1 秒执行标记以避免信息未准备就绪导致失败。
+
+开发者说明
+- 插件主文件：`AutoMark.lua`
+- TOC 文件：`AutoMark.toc`
+- 保存变量：`AutoMarkDB`
+
+测试建议
+1. 将插件放入 AddOns 目录并启用后登录游戏。
+2. 组建一个小队或 raid（建议你为队长或助理以便能成功设置标记）。
+3. 进入副本或在队伍内运行 `/amark` 测试一键标记功能。
+4. 打开 `/mak` 检查或修改标记映射并再次测试。
+
+许可与贡献
+该仓库目前未包含许可证文件。如果你希望我为仓库添加一个开源许可证（例如 MIT），我可以为你创建 LICENSE 文件并提交。
+
+仓库链接
+- https://github.com/kk7469/AutoMark
+
+如需我继续完善：添加图标预览、仅副本内自动标记开关、更可靠的单位匹配、本地化支持或 LICENSE，我可以继续修改并把更改推送到仓库.
