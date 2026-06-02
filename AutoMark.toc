@@ -1,0 +1,10 @@
+## Interface: 120005
+## Title: AutoMark
+## Notes: 自动标记队友插件
+## Author: kk7469
+## Version: 1.0.0
+## SavedVariablesPerCharacter: AutoMarkDB
+
+Locales\zhCN.lua
+AutoMark.lua
+UI\Settings.lua
