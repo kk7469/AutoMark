@@ -1,5 +1,5 @@
 -- AutoMark - 自动标记队友插件
--- 版本: 1.0.1
+-- 版本: 1.0.2
 -- 支持版本: WoW 12.0.5
 
 local ADDON_NAME = "AutoMark"
@@ -81,6 +81,22 @@ local function MarkUnit(unit, markId)
     -- 设置新标记
     if markId >= 1 and markId <= 8 then
         SetRaidTarget(unit, markId)
+    end
+end
+
+-- 标记当前目标
+local function MarkTarget(markId)
+    if not UnitExists("target") then
+        print("|cfffe0000[AutoMark] 请先选中一个目标|r")
+        return
+    end
+    
+    if markId == 0 then
+        SetRaidTarget("target", 0)
+        print("|cff00ff00[AutoMark] 已清除目标标记|r")
+    elseif markId >= 1 and markId <= 8 then
+        SetRaidTarget("target", markId)
+        print(string.format("|cff00ff00[AutoMark] 已标记目标为: %s|r", MARK_NAMES[markId]))
     end
 end
 
@@ -223,10 +239,29 @@ local function SlashCommand(msg)
     end
 end
 
+-- /tm 命令处理器
+local function TMSlashCommand(msg)
+    local markId = tonumber(msg) or 1  -- 默认为 1（黄色圆形）
+    
+    if markId < 0 or markId > 8 then
+        print("|cfffe0000[AutoMark] 标记ID必须在 0-8 之间|r")
+        print("|cff00ff00标记列表:|r")
+        for i = 0, 8 do
+            print(string.format("|cffff9900%d: %s|r", i, MARK_NAMES[i]))
+        end
+        return
+    end
+    
+    MarkTarget(markId)
+end
+
 -- 注册斜杠命令
 SLASH_AUTOMARK1 = "/mak"
 SLASH_AUTOMARK2 = "/automark"
 SlashCmdList["AUTOMARK"] = SlashCommand
+
+SLASH_AUTOMARK_TM1 = "/tm"
+SlashCmdList["AUTOMARK_TM"] = TMSlashCommand
 
 -- 事件处理
 local EventFrame = CreateFrame("Frame")
@@ -281,11 +316,12 @@ end)
 
 EventFrame:SetScript("OnUpdate", OnUpdate)
 
--- 插件���始化
+-- 插件初始化
 local function Initialize()
     InitDB()
-    print("|cff00ff00[AutoMark] 插件已加载 v1.0.1|r")
+    print("|cff00ff00[AutoMark] 插件已加载 v1.0.2|r")
     print("|cffff9900使用 /mak 打开设置界面|r")
+    print("|cffff9900使用 /tm [0-8] 标记当前目标|r")
 end
 
 -- 延迟初始化（确保插件完全加载）
@@ -293,6 +329,7 @@ C_Timer.After(0.1, Initialize)
 
 -- 导出函数供UI使用
 AutoMark.MarkUnit = MarkUnit
+AutoMark.MarkTarget = MarkTarget
 AutoMark.AutoMarkGroup = AutoMarkGroup
 AutoMark.QuickMarkGroup = QuickMarkGroup
 AutoMark.ClearAllMarks = ClearAllMarks
