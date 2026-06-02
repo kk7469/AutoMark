@@ -1,368 +1,233 @@
--- AutoMark - 自动标记队友插件
--- 版本: 1.1.0
--- 支持版本: WoW 12.0.5
+-- AutoMark.lua
+-- World of Warcraft 12.x addon to auto-mark party/raid members by role
 
-local ADDON_NAME = "AutoMark"
-local AutoMark = {}
-_G[ADDON_NAME] = AutoMark
+local addonName = "AutoMark"
+local AM = {}
+_G[addonName] = AM
 
--- 默认配置
-local DEFAULT_CONFIG = {
-    enabled = true,  -- 默认启用
-    autoMark = true,
-    marks = {
-        TANK = 1,        -- 1 = 黄色圆形 (YELLOW)
-        HEALER = 2,      -- 2 = 月亮 (CIRCLE)
-        DAMAGER = 0,     -- 0 = 无标记
-    }
+-- Default settings
+local defaults = {
+  enabled = true,
+  useCommand = true, -- use /tm command if available, fallback to SetRaidTarget
+  roleMarkers = {
+    TANK = 2,   -- Circle
+    HEALER = 5, -- Moon
+    DAMAGER = 8 -- Skull
+  }
 }
 
--- 标记映射表
-local MARK_NAMES = {
-    [0] = "无标记",
-    [1] = "黄色圆形",
-    [2] = "月亮",
-    [3] = "绿色方块",
-    [4] = "紫色星形",
-    [5] = "白色十字",
-    [6] = "红色X",
-    [7] = "蓝色三角形",
-    [8] = "褐色五角星",
+local iconNames = {
+  [1] = "STAR",
+  [2] = "CIRCLE",
+  [3] = "DIAMOND",
+  [4] = "TRIANGLE",
+  [5] = "MOON",
+  [6] = "SQUARE",
+  [7] = "CROSS",
+  [8] = "SKULL",
 }
 
--- 初始化数据库
-local function InitDB()
-    if not AutoMarkDB then
-        AutoMarkDB = {}
-    end
-    
-    for key, value in pairs(DEFAULT_CONFIG) do
-        if AutoMarkDB[key] == nil then
-            AutoMarkDB[key] = value
-        end
-    end
-    
-    -- 合并标记配置
-    if not AutoMarkDB.marks then
-        AutoMarkDB.marks = {}
-    end
-    for key, value in pairs(DEFAULT_CONFIG.marks) do
-        if AutoMarkDB.marks[key] == nil then
-            AutoMarkDB.marks[key] = value
-        end
-    end
+local function LoadDefaults(db)
+  if not db.enabled then db.enabled = defaults.enabled end
+  if db.useCommand==nil then db.useCommand = defaults.useCommand end
+  db.roleMarkers = db.roleMarkers or {}
+  for k,v in pairs(defaults.roleMarkers) do
+    if db.roleMarkers[k]==nil then db.roleMarkers[k]=v end
+  end
 end
 
--- 获取队友专精（坦克/治疗/DPS）
-local function GetUnitSpec(unitId)
-    if not UnitExists(unitId) then
-        return nil
-    end
-    
-    -- 优先使用 UnitGroupRolesAssigned 获取职责
-    local role = UnitGroupRolesAssigned(unitId)
-    if role and role ~= "NONE" then
-        return role
-    end
-    
-    -- 如果职责为空，尝试通过获取玩家职业和专精来判断
-    local class = select(2, UnitClass(unitId))
-    
-    if class == "DEATHKNIGHT" or class == "DEMON_HUNTER" or class == "DRUID" or class == "MONK" or class == "PALADIN" or class == "WARRIOR" then
-        -- 这些职业可能是坦克
-        local spec = GetInspectSpecialization(unitId)
-        if spec then
-            local _, _, _, _, role = GetSpecializationInfo(spec)
-            if role then
-                return role
-            end
-        end
-        
-        -- 如果获取不到，检查是否穿着重甲（可能是坦克）
-        local armorCategory = select(5, GetItemInfo(GetInventoryItemLink(unitId, 3)))
-        if armorCategory == "Plate" then
-            return "TANK"
-        end
-    end
-    
-    return "DAMAGER"
-end
-
--- 标记队友
-local function MarkUnit(unitId, markId)
-    if markId == 0 or not markId then
-        return  -- 无标记
-    end
-    
-    -- 设置新标记
-    if markId >= 1 and markId <= 8 then
-        SetRaidTarget(unitId, markId)
-    end
-end
-
--- 标记当前目标
-local function MarkTarget(markId)
-    if not UnitExists("target") then
-        print("|cfffe0000[AutoMark] 请先选中一个目标|r")
-        return
-    end
-    
-    if markId == 0 then
-        SetRaidTarget("target", 0)
-        print("|cff00ff00[AutoMark] 已清除目标标记|r")
-    elseif markId >= 1 and markId <= 8 then
-        SetRaidTarget("target", markId)
-        print(string.format("|cff00ff00[AutoMark] 已标记目标为: %s|r", MARK_NAMES[markId]))
-    end
-end
-
--- 自动标记队伍
-local lastMarkedCount = 0
-local function AutoMarkGroup()
-    if not AutoMarkDB.enabled or not AutoMarkDB.autoMark then
-        return
-    end
-    
-    local groupSize = GetNumGroupMembers()
-    if groupSize == 0 then
-        lastMarkedCount = 0
-        return
-    end
-    
-    local marked = false
-    local isRaid = IsInRaid()
-    local prefix = isRaid and "raid" or "party"
-    
-    -- 包括自己
-    for i = 0, groupSize do
-        local unitId
-        if i == 0 then
-            unitId = "player"
-        else
-            unitId = prefix .. i
-        end
-        
-        if UnitExists(unitId) then
-            local spec = GetUnitSpec(unitId)
-            if spec then
-                local markId = AutoMarkDB.marks[spec] or 0
-                
-                if markId > 0 then
-                    MarkUnit(unitId, markId)
-                    marked = true
-                end
-            end
-        end
-    end
-    
-    -- 只在首次标记时提示
-    if marked and groupSize ~= lastMarkedCount then
-        print("|cff00ff00[AutoMark] 自动标记完成|r")
-        lastMarkedCount = groupSize
-    end
-end
-
--- 一键标记队伍
-local function QuickMarkGroup()
-    local groupSize = GetNumGroupMembers()
-    if groupSize == 0 then
-        print("|cfffe0000[AutoMark] 未进入队伍|r")
-        return
-    end
-    
-    local isRaid = IsInRaid()
-    local prefix = isRaid and "raid" or "party"
-    
-    -- 包括自己
-    for i = 0, groupSize do
-        local unitId
-        if i == 0 then
-            unitId = "player"
-        else
-            unitId = prefix .. i
-        end
-        
-        if UnitExists(unitId) then
-            local spec = GetUnitSpec(unitId)
-            if spec then
-                local markId = AutoMarkDB.marks[spec] or 0
-                
-                if markId > 0 then
-                    MarkUnit(unitId, markId)
-                end
-            end
-        end
-    end
-    
-    print("|cff00ff00[AutoMark] 一键标记完成|r")
-end
-
--- 清除所有标记
-local function ClearAllMarks()
-    local groupSize = GetNumGroupMembers()
-    if groupSize == 0 then
-        return
-    end
-    
-    local isRaid = IsInRaid()
-    local prefix = isRaid and "raid" or "party"
-    
-    -- 包括自己
-    for i = 0, groupSize do
-        local unitId
-        if i == 0 then
-            unitId = "player"
-        else
-            unitId = prefix .. i
-        end
-        
-        if UnitExists(unitId) then
-            SetRaidTarget(unitId, 0)
-        end
-    end
-    
-    print("|cff00ff00[AutoMark] 已清除所有标记|r")
-    lastMarkedCount = 0
-end
-
--- 打印当前配置
-local function PrintConfig()
-    print("|cff00ff00=== AutoMark 配置 ===|r")
-    print(string.format("|cff00ff00启用状态: %s|r", AutoMarkDB.enabled and "启用" or "禁用"))
-    print(string.format("|cff00ff00自动标记: %s|r", AutoMarkDB.autoMark and "启用" or "禁用"))
-    print("|cff00ff00标记配置:|r")
-    print(string.format("|cffff9900坦克: %s|r", MARK_NAMES[AutoMarkDB.marks.TANK]))
-    print(string.format("|cff00ff00治疗: %s|r", MARK_NAMES[AutoMarkDB.marks.HEALER]))
-    print(string.format("|cffff0000DPS: %s|r", MARK_NAMES[AutoMarkDB.marks.DAMAGER]))
-    print("|cff00ff00使用 /mak 打开设置界面|r")
-end
-
--- 斜杠命令处理
-local function SlashCommand(msg)
-    local cmd, args = msg:match("^(%S*)%s*(.*)$")
-    cmd = cmd:lower()
-    
-    if cmd == "" or cmd == "set" or cmd == "设置" then
-        if AutoMarkSettings then
-            AutoMarkSettings:Show()
-        else
-            print("|cfffe0000[AutoMark] 设置界面还未加载，请稍后...|r")
-        end
-    elseif cmd == "auto" then
-        AutoMarkDB.autoMark = not AutoMarkDB.autoMark
-        print(string.format("|cff00ff00[AutoMark] 自动标记已%s|r", AutoMarkDB.autoMark and "启用" or "禁用"))
-    elseif cmd == "quick" then
-        QuickMarkGroup()
-    elseif cmd == "clear" then
-        ClearAllMarks()
-    elseif cmd == "enable" then
-        AutoMarkDB.enabled = true
-        print("|cff00ff00[AutoMark] 插件已启用|r")
-    elseif cmd == "disable" then
-        AutoMarkDB.enabled = false
-        print("|cff00ff00[AutoMark] 插件已禁用|r")
-    elseif cmd == "config" or cmd == "配置" then
-        PrintConfig()
+-- Utility to get unit token for group index
+local function UnitTokenForIndex(i)
+  if IsInRaid() then
+    return "raid"..i
+  else
+    if i==GetNumGroupMembers() then
+      return "player"
     else
-        PrintConfig()
-        print("\n|cff00ff00可用命令:|r")
-        print("|cffff9900/mak set - 打开设置界面|r")
-        print("|cffff9900/mak auto - 切换自动标记|r")
-        print("|cffff9900/mak quick - 一键标记|r")
-        print("|cffff9900/mak clear - 清除所有标记|r")
-        print("|cffff9900/mak config - 显示配置|r")
+      return "party"..i
     end
+  end
 end
 
--- /tm 命令处理器
-local function TMSlashCommand(msg)
-    local markId = tonumber(msg) or 1  -- 默认为 1（黄色圆形）
-    
-    if markId < 0 or markId > 8 then
-        print("|cfffe0000[AutoMark] 标记ID必须在 0-8 之间|r")
-        print("|cff00ff00标记列表:|r")
-        for i = 0, 8 do
-            print(string.format("|cffff9900%d: %s|r", i, MARK_NAMES[i]))
-        end
+-- Mark a unit by name using /tm command if requested, fallback to SetRaidTarget
+local function MarkUnitByName(name, index, useCommand)
+  if not name or name=="" or index==0 then return end
+  local succeeded = false
+  if useCommand then
+    -- Try to run /tm command (user requested). Format uncertain across servers/addons; attempt `/tm <name> <icon>` where icon is a number 1-8
+    -- If /tm is not available this will silently fail; we fallback to API SetRaidTarget by locating the unit
+    local cmd = string.format("/tm %s %d", name, index)
+    -- RunMacroText executes as if the player typed the macro / command
+    local ok, err = pcall(RunMacroText, cmd)
+    if ok then succeeded = true end
+  end
+  if not succeeded then
+    -- Find a unit token for that name in group or raid
+    for i=1,GetNumGroupMembers() do
+      local unit = UnitTokenForIndex(i)
+      if UnitName(unit) == name then
+        SetRaidTarget(unit, index)
         return
+      end
     end
-    
-    MarkTarget(markId)
+    -- as last resort try player's target
+    if UnitName("target") == name then
+      SetRaidTarget("target", index)
+    end
+  end
 end
 
--- 注册斜杠命令
-SLASH_AUTOMARK1 = "/mak"
-SLASH_AUTOMARK2 = "/automark"
-SlashCmdList["AUTOMARK"] = SlashCommand
-
-SLASH_AUTOMARK_TM1 = "/tm"
-SlashCmdList["AUTOMARK_TM"] = TMSlashCommand
-
--- 事件处理
-local EventFrame = CreateFrame("Frame")
-EventFrame:RegisterEvent("GROUP_JOINED")
-EventFrame:RegisterEvent("GROUP_LEFT")
-EventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-EventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-
-local markTimer = 0
-
-local function OnUpdate(self, elapsed)
-    markTimer = markTimer + elapsed
-    
-    -- 每1.5秒检查一次
-    if markTimer >= 1.5 then
-        if AutoMarkDB.enabled and AutoMarkDB.autoMark and IsInGroup() then
-            AutoMarkGroup()
-        end
-        markTimer = 0
+local function MarkGroup()
+  if not AutoMarkDB or not AutoMarkDB.enabled then return end
+  if not IsInGroup() then return end
+  -- Loop members and mark according to role
+  local n = GetNumGroupMembers()
+  if n==0 and not IsInGroup() then return end
+  -- include player in iteration
+  for i=1, math.max(1,n) do
+    local unit
+    if IsInRaid() then
+      unit = "raid"..i
+    else
+      if i==n then unit = "player" else unit = "party"..i end
     end
+    if UnitExists(unit) then
+      local role = UnitGroupRolesAssigned(unit) or "DAMAGER"
+      local name = UnitName(unit)
+      local marker = AutoMarkDB.roleMarkers[role] or AutoMarkDB.roleMarkers["DAMAGER"]
+      if name and marker and marker>0 then
+        MarkUnitByName(name, marker, AutoMarkDB.useCommand)
+      end
+    end
+  end
 end
 
-EventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "GROUP_JOINED" then
-        -- 进入队伍时立即标记
-        lastMarkedCount = 0
-        print("|cff00ff00[AutoMark] 已进入队伍|r")
-        C_Timer.After(0.5, AutoMarkGroup)
-    elseif event == "GROUP_LEFT" then
-        -- 离开队伍
-        lastMarkedCount = 0
-        print("|cff00ff00[AutoMark] 已离开队伍|r")
-    elseif event == "ZONE_CHANGED_NEW_AREA" then
-        -- 进入新��域时重置标记状态
-        lastMarkedCount = 0
-        if IsInGroup() and AutoMarkDB.enabled and AutoMarkDB.autoMark then
-            C_Timer.After(0.5, AutoMarkGroup)
-        end
-    elseif event == "GROUP_ROSTER_UPDATE" then
-        -- 队伍成员变化时重新标记（如有人加入或离开）
-        if IsInGroup() and AutoMarkDB.enabled and AutoMarkDB.autoMark then
-            C_Timer.After(0.3, AutoMarkGroup)
-        end
+-- Event handling
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("GROUP_ROSTER_UPDATE")
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+frame:SetScript("OnEvent", function(self, event, ...)
+  if event=="GROUP_ROSTER_UPDATE" or event=="PLAYER_ENTERING_WORLD" or event=="ZONE_CHANGED_NEW_AREA" then
+    -- If enabled and in instance then mark
+    if AutoMarkDB and AutoMarkDB.enabled and IsInGroup() then
+      -- Optionally only in instances:
+      if IsInInstance() then
+        C_Timer.After(1, MarkGroup)
+      else
+        -- also allow marking outside instances if enabled
+        C_Timer.After(1, MarkGroup)
+      end
     end
+  end
 end)
 
-EventFrame:SetScript("OnUpdate", OnUpdate)
-
--- 插件初始化
-local function Initialize()
-    InitDB()
-    print("|cff00ff00[AutoMark] 插件已加载 v1.1.0|r")
-    print("|cffff9900使用 /mak 打开设置界面|r")
-    print("|cffff9900使用 /tm [0-8] 标记当前目标|r")
-    print(string.format("|cffff9900当前状态: %s|r", AutoMarkDB.enabled and "已启用" or "已禁用"))
+-- Slash command to open the config
+SLASH_AUTOMARK1 = "/mak"
+SlashCmdList["AUTOMARK"] = function(msg)
+  if not AM.UI then AM:CreateUI() end
+  if AM.UI:IsShown() then AM.UI:Hide() else AM.UI:Show() end
 end
 
--- 延迟初始化（确保插件完全加载）
-C_Timer.After(0.1, Initialize)
+-- One-click mark command
+SLASH_AUTOMARKONE1 = "/amark"
+SlashCmdList["AUTOMARKONE"] = function(msg)
+  MarkGroup()
+end
 
--- 导出函数供UI使用
-AutoMark.MarkUnit = MarkUnit
-AutoMark.MarkTarget = MarkTarget
-AutoMark.AutoMarkGroup = AutoMarkGroup
-AutoMark.QuickMarkGroup = QuickMarkGroup
-AutoMark.ClearAllMarks = ClearAllMarks
-AutoMark.GetConfig = function() return AutoMarkDB end
-AutoMark.UpdateConfig = function(config) AutoMarkDB = config end
-AutoMark.MARK_NAMES = MARK_NAMES
+-- UI
+function AM:CreateUI()
+  local ui = CreateFrame("Frame", "AutoMarkUI", UIParent, "BasicFrameTemplateWithInset")
+  ui:SetSize(300,200)
+  ui:SetPoint("CENTER")
+  ui:SetMovable(true)
+  ui:EnableMouse(true)
+  ui:RegisterForDrag("LeftButton")
+  ui:SetScript("OnDragStart", ui.StartMoving)
+  ui:SetScript("OnDragStop", ui.StopMovingOrSizing)
+
+  ui.title = ui:CreateFontString(nil, "OVERLAY")
+  ui.title:SetFontObject("GameFontHighlight")
+  ui.title:SetPoint("LEFT", ui.TitleBg, "LEFT", 5, 0)
+  ui.title:SetText("AutoMark Settings")
+
+  -- Auto enable checkbox
+  ui.chkAuto = CreateFrame("CheckButton", nil, ui, "UICheckButtonTemplate")
+  ui.chkAuto:SetPoint("TOPLEFT", 16, -40)
+  ui.chkAuto.text:SetText("Enable Auto Mark")
+  ui.chkAuto:SetChecked(AutoMarkDB.enabled)
+  ui.chkAuto:SetScript("OnClick", function(self)
+    AutoMarkDB.enabled = self:GetChecked()
+  end)
+
+  -- Use /tm command checkbox
+  ui.chkCmd = CreateFrame("CheckButton", nil, ui, "UICheckButtonTemplate")
+  ui.chkCmd:SetPoint("TOPLEFT", 16, -70)
+  ui.chkCmd.text:SetText("Use /tm command (fallback to API)")
+  ui.chkCmd:SetChecked(AutoMarkDB.useCommand)
+  ui.chkCmd:SetScript("OnClick", function(self)
+    AutoMarkDB.useCommand = self:GetChecked()
+  end)
+
+  -- One-click button
+  ui.btnMark = CreateFrame("Button", nil, ui, "GameMenuButtonTemplate")
+  ui.btnMark:SetPoint("BOTTOMLEFT", 16, 16)
+  ui.btnMark:SetSize(120,24)
+  ui.btnMark:SetText("One-Click Mark")
+  ui.btnMark:SetScript("OnClick", function()
+    MarkGroup()
+  end)
+
+  -- Dropdowns for roles
+  local function CreateRoleDropdown(parent, label, x, y, roleKey)
+    local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    lbl:SetPoint("TOPLEFT", x, y)
+    lbl:SetText(label)
+
+    local dd = CreateFrame("Frame", "AutoMarkDD_"..roleKey, parent, "UIDropDownMenuTemplate")
+    dd:SetPoint("TOPLEFT", x+120, y+6)
+    UIDropDownMenu_SetWidth(dd, 120)
+
+    local function OnClick(self)
+      AutoMarkDB.roleMarkers[roleKey] = self.value
+      UIDropDownMenu_SetText(dd, self:GetText())
+    end
+
+    local function Initialize(self, level)
+      local info = UIDropDownMenu_CreateInfo()
+      for i=1,8 do
+        info.text = string.format("%d - %s", i, iconNames[i])
+        info.value = i
+        info.func = OnClick
+        info.checked = (AutoMarkDB.roleMarkers[roleKey]==i)
+        UIDropDownMenu_AddButton(info)
+      end
+    end
+    UIDropDownMenu_Initialize(dd, Initialize)
+    UIDropDownMenu_SetSelectedValue(dd, AutoMarkDB.roleMarkers[roleKey])
+    UIDropDownMenu_SetText(dd, string.format("%d - %s", AutoMarkDB.roleMarkers[roleKey], iconNames[AutoMarkDB.roleMarkers[roleKey]]))
+    return dd
+  end
+
+  ui.ddTank = CreateRoleDropdown(ui, "Tank:", 16, -100, "TANK")
+  ui.ddHealer = CreateRoleDropdown(ui, "Healer:", 16, -130, "HEALER")
+  ui.ddDPS = CreateRoleDropdown(ui, "Damager:", 16, -160, "DAMAGER")
+
+  ui:Hide()
+  AM.UI = ui
+end
+
+-- Initialize saved vars
+local function OnInitialize()
+  AutoMarkDB = AutoMarkDB or {}
+  LoadDefaults(AutoMarkDB)
+  -- Create UI ready to show when slash used
+  AM:CreateUI()
+end
+
+OnInitialize()
+
+-- Expose MarkGroup for manual use
+AM.MarkGroup = MarkGroup
+
+print("AutoMark loaded. Use /mak to open settings, /amark to run one-click mark.")

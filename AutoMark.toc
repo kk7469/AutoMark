@@ -1,10 +1,7 @@
 ## Interface: 120005
 ## Title: AutoMark
-## Notes: 自动标记队友插件
 ## Author: kk7469
 ## Version: 1.0.0
-## SavedVariablesPerCharacter: AutoMarkDB
-
-Locales\zhCN.lua
+## Notes: Automatically mark group members by role (tank/healer/damager) and provide UI to configure markers.
+## SavedVariables: AutoMarkDB
 AutoMark.lua
-UI\Settings.lua
