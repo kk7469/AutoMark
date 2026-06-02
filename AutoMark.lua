@@ -1,34 +1,36 @@
 -- AutoMark.lua
--- World of Warcraft 12.x addon to auto-mark party/raid members by role
+-- 魔兽世界 12.x 插件：根据队伍职责自动标记成员（界面与注释均为中文）
 
 local addonName = "AutoMark"
 local AM = {}
 _G[addonName] = AM
 
--- Default settings
+-- 默认设置（SavedVariables: AutoMarkDB）
 local defaults = {
-  enabled = true,
-  useCommand = true, -- use /tm command if available, fallback to SetRaidTarget
+  enabled = true,               -- 是否启用自动标记
+  useCommand = true,            -- 是否优先使用 /tm 命令（若不可用回退到 SetRaidTarget）
   roleMarkers = {
-    TANK = 2,   -- Circle
-    HEALER = 5, -- Moon
-    DAMAGER = 8 -- Skull
+    TANK = 2,   -- 圆圈
+    HEALER = 5, -- 月亮
+    DAMAGER = 8 -- 骷髅
   }
 }
 
+-- 标记名称（用于下拉菜单显示）
 local iconNames = {
-  [1] = "STAR",
-  [2] = "CIRCLE",
-  [3] = "DIAMOND",
-  [4] = "TRIANGLE",
-  [5] = "MOON",
-  [6] = "SQUARE",
-  [7] = "CROSS",
-  [8] = "SKULL",
+  [1] = "星星",
+  [2] = "圆形",
+  [3] = "钻石",
+  [4] = "三角",
+  [5] = "月亮",
+  [6] = "方块",
+  [7] = "十字",
+  [8] = "骷髅",
 }
 
+-- 加载默认配置（若保存变量缺失则填充）
 local function LoadDefaults(db)
-  if not db.enabled then db.enabled = defaults.enabled end
+  if db.enabled==nil then db.enabled = defaults.enabled end
   if db.useCommand==nil then db.useCommand = defaults.useCommand end
   db.roleMarkers = db.roleMarkers or {}
   for k,v in pairs(defaults.roleMarkers) do
@@ -36,7 +38,7 @@ local function LoadDefaults(db)
   end
 end
 
--- Utility to get unit token for group index
+-- 根据组内索引返回对应的 unit token（raidN / partyN / player）
 local function UnitTokenForIndex(i)
   if IsInRaid() then
     return "raid"..i
@@ -49,42 +51,41 @@ local function UnitTokenForIndex(i)
   end
 end
 
--- Mark a unit by name using /tm command if requested, fallback to SetRaidTarget
+-- 通过名字给玩家标记：优先尝试 /tm 命令，失败则回退到 SetRaidTarget
 local function MarkUnitByName(name, index, useCommand)
   if not name or name=="" or index==0 then return end
   local succeeded = false
   if useCommand then
-    -- Try to run /tm command (user requested). Format uncertain across servers/addons; attempt `/tm <name> <icon>` where icon is a number 1-8
-    -- If /tm is not available this will silently fail; we fallback to API SetRaidTarget by locating the unit
+    -- 尝试执行 /tm 命令，格式为：/tm <name> <index>
+    -- 注意：/tm 不是暴雪原生命令，视服务器/其他插件而定；因此用 pcall 包裹以免报错
     local cmd = string.format("/tm %s %d", name, index)
-    -- RunMacroText executes as if the player typed the macro / command
     local ok, err = pcall(RunMacroText, cmd)
     if ok then succeeded = true end
   end
   if not succeeded then
-    -- Find a unit token for that name in group or raid
-    for i=1,GetNumGroupMembers() do
+    -- 在队伍/团队里按 unit token 查找名字并使用 API 标记
+    for i=1, GetNumGroupMembers() do
       local unit = UnitTokenForIndex(i)
-      if UnitName(unit) == name then
+      if UnitExists(unit) and UnitName(unit) == name then
         SetRaidTarget(unit, index)
         return
       end
     end
-    -- as last resort try player's target
-    if UnitName("target") == name then
+    -- 最后尝试玩家当前目标（作为回退）
+    if UnitExists("target") and UnitName("target") == name then
       SetRaidTarget("target", index)
     end
   end
 end
 
+-- 对整个队伍进行职责标记
 local function MarkGroup()
   if not AutoMarkDB or not AutoMarkDB.enabled then return end
   if not IsInGroup() then return end
-  -- Loop members and mark according to role
   local n = GetNumGroupMembers()
   if n==0 and not IsInGroup() then return end
-  -- include player in iteration
-  for i=1, math.max(1,n) do
+  -- 遍历队伍/团队成员并根据 UnitGroupRolesAssigned 返回的职责应用标记
+  for i=1, math.max(1, n) do
     local unit
     if IsInRaid() then
       unit = "raid"..i
@@ -102,43 +103,37 @@ local function MarkGroup()
   end
 end
 
--- Event handling
+-- 事件处理：监听队伍变更/进入世界/区域变化，触发延迟标记
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 frame:SetScript("OnEvent", function(self, event, ...)
   if event=="GROUP_ROSTER_UPDATE" or event=="PLAYER_ENTERING_WORLD" or event=="ZONE_CHANGED_NEW_AREA" then
-    -- If enabled and in instance then mark
     if AutoMarkDB and AutoMarkDB.enabled and IsInGroup() then
-      -- Optionally only in instances:
-      if IsInInstance() then
-        C_Timer.After(1, MarkGroup)
-      else
-        -- also allow marking outside instances if enabled
-        C_Timer.After(1, MarkGroup)
-      end
+      -- 延迟 1 秒执行，避免信息未就绪
+      C_Timer.After(1, MarkGroup)
     end
   end
 end)
 
--- Slash command to open the config
+-- Slash 命令：/mak 打开设置界面
 SLASH_AUTOMARK1 = "/mak"
 SlashCmdList["AUTOMARK"] = function(msg)
   if not AM.UI then AM:CreateUI() end
   if AM.UI:IsShown() then AM.UI:Hide() else AM.UI:Show() end
 end
 
--- One-click mark command
+-- 一键标记命令：/amark
 SLASH_AUTOMARKONE1 = "/amark"
 SlashCmdList["AUTOMARKONE"] = function(msg)
   MarkGroup()
 end
 
--- UI
+-- 创建设置界面（中文界面文本）
 function AM:CreateUI()
   local ui = CreateFrame("Frame", "AutoMarkUI", UIParent, "BasicFrameTemplateWithInset")
-  ui:SetSize(300,200)
+  ui:SetSize(320,230)
   ui:SetPoint("CENTER")
   ui:SetMovable(true)
   ui:EnableMouse(true)
@@ -149,36 +144,36 @@ function AM:CreateUI()
   ui.title = ui:CreateFontString(nil, "OVERLAY")
   ui.title:SetFontObject("GameFontHighlight")
   ui.title:SetPoint("LEFT", ui.TitleBg, "LEFT", 5, 0)
-  ui.title:SetText("AutoMark Settings")
+  ui.title:SetText("AutoMark 设置")
 
-  -- Auto enable checkbox
+  -- 启用自动标记复选框
   ui.chkAuto = CreateFrame("CheckButton", nil, ui, "UICheckButtonTemplate")
   ui.chkAuto:SetPoint("TOPLEFT", 16, -40)
-  ui.chkAuto.text:SetText("Enable Auto Mark")
+  ui.chkAuto.text:SetText("启用自动标记")
   ui.chkAuto:SetChecked(AutoMarkDB.enabled)
   ui.chkAuto:SetScript("OnClick", function(self)
     AutoMarkDB.enabled = self:GetChecked()
   end)
 
-  -- Use /tm command checkbox
+  -- 使用 /tm 命令复选框
   ui.chkCmd = CreateFrame("CheckButton", nil, ui, "UICheckButtonTemplate")
   ui.chkCmd:SetPoint("TOPLEFT", 16, -70)
-  ui.chkCmd.text:SetText("Use /tm command (fallback to API)")
+  ui.chkCmd.text:SetText("优先使用 /tm 命令（不可用时回退到 API）")
   ui.chkCmd:SetChecked(AutoMarkDB.useCommand)
   ui.chkCmd:SetScript("OnClick", function(self)
     AutoMarkDB.useCommand = self:GetChecked()
   end)
 
-  -- One-click button
+  -- 一键标记按钮
   ui.btnMark = CreateFrame("Button", nil, ui, "GameMenuButtonTemplate")
   ui.btnMark:SetPoint("BOTTOMLEFT", 16, 16)
   ui.btnMark:SetSize(120,24)
-  ui.btnMark:SetText("One-Click Mark")
+  ui.btnMark:SetText("一键标记")
   ui.btnMark:SetScript("OnClick", function()
     MarkGroup()
   end)
 
-  -- Dropdowns for roles
+  -- 为职责创建下拉菜单（用于选择标记编号）
   local function CreateRoleDropdown(parent, label, x, y, roleKey)
     local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     lbl:SetPoint("TOPLEFT", x, y)
@@ -186,7 +181,7 @@ function AM:CreateUI()
 
     local dd = CreateFrame("Frame", "AutoMarkDD_"..roleKey, parent, "UIDropDownMenuTemplate")
     dd:SetPoint("TOPLEFT", x+120, y+6)
-    UIDropDownMenu_SetWidth(dd, 120)
+    UIDropDownMenu_SetWidth(dd, 140)
 
     local function OnClick(self)
       AutoMarkDB.roleMarkers[roleKey] = self.value
@@ -209,25 +204,24 @@ function AM:CreateUI()
     return dd
   end
 
-  ui.ddTank = CreateRoleDropdown(ui, "Tank:", 16, -100, "TANK")
-  ui.ddHealer = CreateRoleDropdown(ui, "Healer:", 16, -130, "HEALER")
-  ui.ddDPS = CreateRoleDropdown(ui, "Damager:", 16, -160, "DAMAGER")
+  ui.ddTank = CreateRoleDropdown(ui, "坦克：", 16, -100, "TANK")
+  ui.ddHealer = CreateRoleDropdown(ui, "治疗：", 16, -130, "HEALER")
+  ui.ddDPS = CreateRoleDropdown(ui, "输出：", 16, -160, "DAMAGER")
 
   ui:Hide()
   AM.UI = ui
 end
 
--- Initialize saved vars
+-- 初始化保存变量并创建 UI
 local function OnInitialize()
   AutoMarkDB = AutoMarkDB or {}
   LoadDefaults(AutoMarkDB)
-  -- Create UI ready to show when slash used
   AM:CreateUI()
 end
 
 OnInitialize()
 
--- Expose MarkGroup for manual use
+-- 暴露 MarkGroup 以便手动调用
 AM.MarkGroup = MarkGroup
 
-print("AutoMark loaded. Use /mak to open settings, /amark to run one-click mark.")
+print("AutoMark 已加载。输入 /mak 打开设置，/amark 执行一键标记。")
